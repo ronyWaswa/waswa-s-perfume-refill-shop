@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waswa's Perfume Refill Shop</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f6f1ee; color: #2b1f1a; margin: 0; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { margin: 0 0 4px; }
+  .sub { color: #6b5a52; margin: 0 0 18px; }
+  .box { background: #fff; border: 2px solid #e2d6cf; border-left: 6px solid #8a3b5a; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-weight: bold; margin-bottom: 10px; }
+  select, input { width: 100%; padding: 10px; font-size: 1rem; margin-top: 4px; border: 2px solid #e2d6cf; border-radius: 4px; }
+  button { padding: 10px 18px; font-size: 1rem; font-weight: bold; border: 0; border-radius: 4px; background: #8a3b5a; color: #fff; cursor: pointer; margin: 0 6px 6px 0; }
+  button.light { background: #fff; color: #2b1f1a; border: 2px solid #e2d6cf; }
+  button.remove { background: none; color: #b3261e; padding: 2px 6px; margin: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 4px; border-bottom: 1px solid #eee3dc; }
+  .num { text-align: right; }
+  .total { font-size: 1.3rem; font-weight: bold; margin-top: 12px; text-align: right; }
+  .error { color: #b3261e; font-weight: bold; margin-top: 8px; }
+  #receipt { max-width: 340px; margin: 0 auto 16px; border: 2px dashed #8a3b5a; font-family: Consolas, "Courier New", monospace; }
+  #receipt .center { text-align: center; }
+  #receipt h2 { margin: 0; font-size: 1.2rem; }
+  #receipt p { margin: 2px 0; }
+  #receipt table { font-size: .9rem; }
+  #receipt .grand { font-size: 1.1rem; font-weight: bold; text-align: right; margin-top: 10px; }
+  [hidden] { display: none !important; }
+  @media print {
+    body * { visibility: hidden; }
+    #receipt, #receipt * { visibility: visible; }
+    #receipt { position: absolute; left: 0; top: 0; border: none; margin: 0; width: 100%; max-width: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Waswa's Perfume Refill Shop</h1>
+  <p class="sub">Choose a perfume, enter the ml, add it to the bill, then print the receipt.</p>
+
+  <div class="box">
+    <label>Customer name (optional)
+      <input id="customer" type="text" placeholder="e.g. Amina">
+    </label>
+    <label>Perfume
+      <select id="perfume"></select>
+    </label>
+    <label>Amount in ml
+      <input id="ml" type="number" min="1" max="500" step="any" placeholder="e.g. 50">
+    </label>
+    <button onclick="addItem()">Add to bill</button>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div class="box">
+    <h2>Bill</h2>
+    <table>
+      <thead>
+        <tr><th>Perfume</th><th class="num">ml</th><th class="num">Price/ml</th><th class="num">Cost</th><th></th></tr>
+      </thead>
+      <tbody id="bill"></tbody>
+    </table>
+    <div class="total" id="total">Total: KES 0.00</div>
+  </div>
+
+  <button onclick="makeReceipt()">Generate receipt</button>
+  <button class="light" onclick="clearBill()">Clear bill</button>
+
+  <div class="box" id="receipt" hidden>
+    <div class="center">
+      <h2 id="shop"></h2>
+      <p>REFILL RECEIPT</p>
+      <p id="rno"></p>
+      <p id="date"></p>
+      <p id="cust"></p>
+    </div>
+    <hr>
+    <table>
+      <thead>
+        <tr><th>Item</th><th class="num">ml</th><th class="num">Price</th><th class="num">Cost</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <hr>
+    <div class="grand" id="grand"></div>
+    <p class="center" style="margin-top:12px">Thank you for shopping with us!</p>
+  </div>
+  <button id="printBtn" onclick="window.print()" hidden>Print receipt</button>
+</div>
+
+<script>
+  // ===== Change these to match your shop =====
+  var SHOP_NAME = "Waswa's Perfume Refill Shop";
+  var CURRENCY = "KES";
+  var perfumes = [
+    { name: "Rose Oud", price: 25 },
+    { name: "Vanilla Musk", price: 18 },
+    { name: "Ocean Breeze", price: 15 },
+    { name: "Amber Night", price: 30 },
+    { name: "Citrus Fresh", price: 12 }
+  ];
+  // ===========================================
+  var items = [];
+
+  function money(n) {
+    return CURRENCY + " " + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function fillMenu() {
+    var select = document.getElementById("perfume");
+    perfumes.forEach(function (p, i) {
+      var option = document.createElement("option");
+      option.value = i;
+      option.textContent = p.name + " (" + CURRENCY + " " + p.price + " per ml)";
+      select.appendChild(option);
+    });
+  }
+
+  function cell(row, text, className) {
+    var td = document.createElement("td");
+    td.textContent = text;
+    if (className) td.className = className;
+    row.appendChild(td);
+    return td;
+  }
+
+  function addItem() {
+    var error = document.getElementById("error");
+    var ml = parseFloat(document.getElementById("ml").value);
+    error.textContent = "";
+    if (isNaN(ml) || ml <= 0 || ml > 500) {
+      error.textContent = "Enter an amount between 1 and 500 ml.";
+      return;
+    }
+    var p = perfumes[document.getElementById("perfume").value];
+    items.push({ name: p.name, ml: ml, price: p.price });
+    document.getElementById("ml").value = "";
+    render();
+  }
+
+  function removeItem(index) {
+    items.splice(index, 1);
+    render();
+  }
+
+  function clearBill() {
+    items = [];
+    document.getElementById("error").textContent = "";
+    render();
+  }
+
+  function render() {
+    var body = document.getElementById("bill");
+    var total = 0;
+    body.textContent = "";
+    items.forEach(function (item, index) {
+      var cost = item.ml * item.price;
+      total += cost;
+      var row = document.createElement("tr");
+      cell(row, item.name);
+      cell(row, item.ml, "num");
+      cell(row, item.price, "num");
+      cell(row, money(cost), "num");
+      var last = cell(row, "");
+      var btn = document.createElement("button");
+      btn.className = "remove";
+      btn.textContent = "Remove";
+      btn.onclick = function () { removeItem(index); };
+      last.appendChild(btn);
+      body.appendChild(row);
+    });
+    document.getElementById("total").textContent = "Total: " + money(total);
+    document.getElementById("receipt").hidden = true;
+    document.getElementById("printBtn").hidden = true;
+  }
+
+  function makeReceipt() {
+    var error = document.getElementById("error");
+    if (items.length === 0) {
+      error.textContent = "Add at least one refill before making a receipt.";
+      window.scrollTo(0, 0);
+      return;
+    }
+    error.textContent = "";
+    var name = document.getElementById("customer").value.trim();
+    var rows = document.getElementById("rows");
+    var total = 0;
+    rows.textContent = "";
+    items.forEach(function (item) {
+      var cost = item.ml * item.price;
+      total += cost;
+      var row = document.createElement("tr");
+      cell(row, item.name);
+      cell(row, item.ml, "num");
+      cell(row, item.price, "num");
+      cell(row, cost.toFixed(2), "num");
+      rows.appendChild(row);
+    });
+    document.getElementById("shop").textContent = SHOP_NAME;
+    document.getElementById("rno").textContent = "Receipt no: R" + String(Date.now()).slice(-6);
+    document.getElementById("date").textContent = new Date().toLocaleString();
+    document.getElementById("cust").textContent = name ? "Customer: " + name : "";
+    document.getElementById("grand").textContent = "TOTAL: " + money(total);
+    document.getElementById("receipt").hidden = false;
+    document.getElementById("printBtn").hidden = false;
+    document.getElementById("receipt").scrollIntoView({ behavior: "smooth" });
+  }
+
+  document.getElementById("ml").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") addItem();
+  });
+
+  fillMenu();
+  render();
+</script>
+</body>
+</html>
